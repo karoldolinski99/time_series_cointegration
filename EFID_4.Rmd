@@ -1,0 +1,165 @@
+---
+title: "<center>Ekonometria Finansowa i Dynamiczna - projekt IV</center>"
+output: 
+    html_document:
+          toc: true
+          toc_float: true
+          number_sections: true
+          css: style.css
+---
+<center>
+Karol Doliński, Magdalena Kurek, Magdalena Smalarz, Małgorzata Warczyńska
+
+Informatyka i Ekonometria
+</center>
+
+
+
+```{r setup, include=FALSE}
+options(scipen=999)
+knitr::opts_chunk$set(
+ fig.width = 6,
+ fig.asp = 0.9,
+ out.width = "100%"
+)
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(aTSA)
+library(dplyr)
+library(urca)
+library(zoo)
+library(kableExtra)
+```
+
+
+# Wprowadzenie
+
+Celem pracy jest weryfikacja występowania zjawiska kointegracji pomiędzy wybranymi kursami walutowymi. Kointegracja to szczególny przypadek zależności pomiędzy dwoma zmiennymi niestacjonarnymi. Jeżeli zmienne $y_t$ oraz $x_t$ są zintegrowane w stopniu pierwszym oraz składnik resztowy $e_t$ taki, że:
+
+$$e_t=y_t-\beta_0-\beta_1x_t$$
+
+jest stacjonarny, to zmienne $x_t$ i $y_t$ są skointegrowane. Kointegracja szeregów oznacza, że zmienne błądzą w sposób przypadkowy, ale ich zachowanie jest podobne do siebie. W praktyce najczęściej występuje kointegracja rzędu (1,1), czyli sytuacja gdy badane szeregi mają pierwiastek jednostkowy (są niestacjonarne), ale ich liniowa kombinacja jest stacjonarna. Jeżeli zmienne są skointegrowane to podążają za tym samym trendem stochastycznym oraz występuje między nimi długookresowa równowaga. 
+
+Wykorzystane w pracy dane zostały pobrane w dniu 12.05.2022 roku ze strony [Stooq](https://stooq.pl/) i dotyczą okresu od 1 stycznia 2018 roku do 31 marca 2022 roku. Zbiór danych dotyczy wartości zamknięcia dla indeksów (w ujęciu dziennym):
+
+1. EUR-SEK: kurs euro - korona szwedzka,
+2. EUR-ISK: kurs euro - korona islandzka,
+3. EUR-HUF: kurs euro - forint węgierski.
+
+
+Przyjęty poziom istotności: $\alpha=5\%$. 
+
+-----
+
+# Przygotowanie danych
+
+Pierwszym etapem przygotowania danych było rozwiązanie problemu braków danych dla poszczególnych indeksów spowodowanych np. świętami narodowymi w danym państwie. Do rozwiązania tego problemu posłużono się interpolacją liniową. Liniowa funkcja interpolująca $L(x)$w przedziale $[x_0, x_1]$ ma postać: 
+
+$$L(x)=y_0 + \frac{y_1-y_0}{x_1-x_0}(x-x_0),$$
+gdzie: $y_0, y_1$ to w niniejszej pracy odpowiednio wartości zamknięcia dla danego indeksu z dnia $x_0$ i $x_1$. Występuje zależność: $x_0<x<x_1$, gdzie $x$ to dzień, dla którego nie ma wartości indeksu. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+eursek <- read.csv('eursek_d.csv')
+eursek <- cbind.data.frame(eursek$Data, eursek$Zamkniecie)
+colnames(eursek) <- c('Date', 'Closing')
+eurisk <- read.csv('eurisk_d.csv')
+eurisk <- cbind.data.frame(eurisk$Data, eurisk$Zamkniecie)
+colnames(eurisk) <- c('Date', 'Closing')
+eurhuf <- read.csv('eurhuf_d.csv')
+eurhuf <- cbind.data.frame(eurhuf$Data, eurhuf$Zamkniecie)
+colnames(eurhuf) <- c('Date', 'Closing')
+
+dataset <- merge(eursek, eurisk, by="Date", incomparables = NA, all.x = T, all.y = T)
+dataset <- merge(dataset, eurhuf, by="Date", incomparables = NA, all.x = T, all.y = T)
+colnames(dataset) <- c('Date', 'SEK', 'ISK', 'HUF')
+
+for (i in 2:4){
+  dataset[,i] <- na.approx(dataset[,i], rule=2)
+}
+```
+
+-----
+
+# Stacjonarność szeregów
+
+Kolejnym etapem jest zbadanie stacjonarności każdego z szeregów. Jeżeli szereg czasowy nie jest stacjonarny, to większość testów nie ma właściwych rozkładów. Stacjonarność szeregu zweryfikowano testem ADF. Hipotezy mają następującą postać:
+
+<center>$H_0:$ Szereg jest niestacjonarny</center>
+<center>$H_1:$ Szereg jest stacjonarny</center>
+
+<br> 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+UR_DF_stat=rbind(summary(ur.df(dataset$SEK))@teststat[1,1],summary(ur.df(dataset$ISK))@teststat[1,1],summary(ur.df(dataset$HUF))@teststat[1,1])
+UR_DF_crit=rbind(summary(ur.df(dataset$SEK))@cval[2],summary(ur.df(dataset$ISK))@cval[2],summary(ur.df(dataset$HUF))@cval[2])
+UR_DF=cbind(round(UR_DF_stat,4),UR_DF_crit)
+colnames(UR_DF)=c( "Wartość statystyki","Wartość krytyczna")
+rownames(UR_DF)=c("EUR-SEK","EUR-ISK","EUR-HUF")
+UR_DF %>% kbl() %>% kable_styling() %>%
+  footnote(general = "Tab. 1.: Wartość statystyki dla testu ADF (ur.df())",
+           general_title = "",
+           footnote_as_chunk = T, title_format = c("italic"))
+```
+
+W tabeli 1 przedstawiono wartości statystyki testu ADF (ang. <i>augmented Dickey-Fuller unit root test</i>) dla każdego szeregu wraz z wartościami krytycznymi przy 5% poziomie istotności. Test ten jest lewostronny, co oznacza, że wartość statystyki mniejsza od wartości krytycznej wskazuje na istnienie podstaw do odrzucenia hipotezy zerowej. W tym przypadku wszystkie otrzymane wartości są wyraźnie większe niż wartość krytyczna, a zatem nie ma podstaw do odrzucenia hipotezy głównej. Potwierdzono niestacjonarność badanych szeregów czasowych. 
+
+-----
+
+# Kointegracja
+
+W kolejnym kroku zbadano występowanie zjawiska kointegracji pomiędzy każdą parą badanych szeregów czasowych. W tym celu wykorzystano metodę Engle'a-Grangera. Zgodnie z tą procedurą wykonano następujące kroki:
+
+1. Zweryfikowano niestacjonarność szeregów (test ADF). Testy ADF opisane powyżej pozwoliły stwierdzić, że wszystkie trzy badane szeregi są niestacjonarne.
+
+2. Za pomocą Metody Najmniejszych Kwadratów wyestymowano modele dla każdej pary badanych szeregów:
+$$Y_t=\alpha_0+\alpha X_t+u_t$$
+$$X_t=\alpha_0+\alpha Y_t+u_t$$
+
+3. Zbadano stacjonarność reszt $\hat{u_t}$ w każdym z wyestymowanych modeli.
+
+Tym razem skorzystano z testu opracowanego przez Elliotta, Rothenberga i Stocka (ERS), który jest modyfikacją rozszerzonego testu Dickeya–Fullera (ADF). Test ten dominuje wśród istniejących testów pierwiastków jednostkowych pod względem mocy. Hipotezy tego testu są identyczne jak w standardowym teście ADF. 
+
+W poniższej tabeli zebrano wartości statystyk testu ERS wraz z wartościami krytycznymi podwójnie dla każdej pary rozważanych szeregów. Dwie wartości wynikają z faktu, że wyestymowano po dwa modele dla każdej pary (zmieniając szereg będący zmienną objaśnianą).
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+model_sek_isk <- lm(SEK~ISK, data = dataset)
+model_isk_sek <- lm(ISK~SEK, data = dataset)
+
+model_sek_huf <- lm(SEK~HUF, data = dataset)
+model_huf_sek <- lm(HUF~SEK, data = dataset)
+
+model_isk_huf <- lm(ISK~HUF, data = dataset)
+model_huf_isk <- lm(HUF~ISK, data = dataset)
+
+residuals <- list(model_sek_isk$residuals, model_isk_sek$residuals,
+                  model_sek_huf$residuals, model_huf_sek$residuals,
+                  model_isk_huf$residuals, model_huf_isk$residuals)
+#sapply(residuals, ur.ers)
+
+ur_ers_result <- as.data.frame(matrix(NA, length(residuals), 2))
+for (i in 1:length(residuals)){
+  ur_ers_result[i,1] <- summary(ur.ers(residuals[[i]]))@teststat
+  ur_ers_result[i,2] <- summary(ur.ers(residuals[[i]]))@cval[2]
+}
+ur_ers_result[,1]=round(ur_ers_result,4)
+colnames(ur_ers_result)=c("Wartość statystyki", "Wartość krytyczna")
+rownames(ur_ers_result)=c("EUR-SEK ~ EUR-ISK","EUR-ISK ~ EUR-SEK","EUR-SEK ~ EUR-HUF","EUR-HUF ~ EUR-SEK","EUR-ISK ~ EUR-HUF","EUR-HUF ~ EUR-ISK")
+ur_ers_result %>% kbl() %>% kable_styling() %>%
+  footnote(general = "Tab. 2.: Wartość statystyki dla testu ERS",
+           general_title = "",
+           footnote_as_chunk = T, title_format = c("italic"))
+```
+
+Test ten jest lewostronny, co oznacza, że wartość statystyki mniejsza od wartości krytycznej wskazuje na odrzucenie hipotezy zerowej. Wartości uzyskane dla każdej pary szeregów są większe niż wartość krytyczna, a zatem nie ma podstaw do odrzucenia hipotezy głównej. Pozwala to stwierdzić, że reszty wszystkich wyestymowanych modeli są procesami niestacjonarnymi.   
+
+Procedura Engle’a-Grangera mówi, że kointegracja występuje, jeśli badane procesy są niestacjonarne, a proces resztowy równania kointegrującego jest stacjonarny. W związku z tym, że żaden proces resztowy równań kointegrujących w badanym przypadku nie jest stacjonarny, należy stwierdzić, że nie występuje kointegracja pomiędzy żadną parą badanych kursów walut.
+
+Warte rozważenia jest czy w procedurze Engle’a-Grangera ma znaczenie, który szereg czasowy pełni rolę zmiennej objaśnianej. Na podstawie wyznaczonych statystyk (zob. Tabela 2) można by uznać, iż nie ma to znaczenia. Niemniej byłby to wniosek błędny. Gdyby przyjąć poziom istotności na poziomie 10%, to wartość krytyczna byłaby równa -1.62, a więc dla przypadku EUR-ISK ~ EUR-HUF istniałyby podstawy do odrzucenia hipotezy zerowej testu ADF, kiedy dla EUR-HUF ~ EUR-ISK dalej właściwe byłoby przyjęcie hipotezy zerowej. Ze względu na to można stwierdzić, iż w procedurze Engle’a-Grangera ma znaczenie, który szereg czasowy pełni rolę zmiennej objaśnianej. 
+
+-----
+
+# Podsumowanie
+
+W niniejszej pracy wykorzystano dzienne kursy zamknięcia walut EUR-SEK, EUR-ISK i EUR-HUF z okresu od stycznia 2018 do marca 2022 roku. Problem braków danych rozwiązano stosując interpolację liniową. Za pomocą rozszerzonego testu Dickeya–Fullera (ADF) zbadano stacjonarność badanych szeregów. Na poziomie istotności 5% stwierdzono, że wszystkie szeregi są niestacjonarne. Następnie zbadano występowanie zjawiska kointegracji za pomocą procedury Engle’a-Grangera. Dla każdej pary szeregów wyestymowano dwa równania kointegrujące (z zamianą zmiennej objaśnianej) i sprawdzono stacjonarność reszt każdego modelu za pomocą testu ERS. Nie wykryto kointegracji w żadnej badanej parze, ponieważ procesy resztowe wszystkich równań kointegrujących są niestacjonarne. Dodatkowo sprawdzono, że w tej procedurze ma znaczenie, który szereg z pary pełni funkcję zmiennej objaśnianej. 
